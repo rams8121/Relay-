@@ -36,7 +36,7 @@ body{background:var(--bg);color:var(--text);font-family:'Segoe UI',system-ui,san
 .history-section{padding:12px 20px}
 .history-title{display:flex;justify-content:space-between;align-items:center;font-size:11px;font-weight:700;letter-spacing:.08em;margin-bottom:8px}
 .clear-btn{background:transparent;border:1px solid var(--border);border-radius:6px;padding:3px 10px;font-size:11px;color:var(--muted);cursor:pointer}
-.history-list{display:flex;flex-direction:column;gap:4px;max-height:300px;overflow-y:auto}
+.history-list{display:flex;flex-direction:column;gap:4px;max-height:250px;overflow-y:auto}
 .history-item{display:flex;gap:8px;align-items:center;font-size:12px;padding:6px 8px;background:var(--surface);border-radius:6px}
 .hi-time{color:var(--muted);font-family:monospace;font-size:10px}
 .hi-size{color:var(--accent2);font-family:monospace}
@@ -54,7 +54,7 @@ body{background:var(--bg);color:var(--text);font-family:'Segoe UI',system-ui,san
 #tapOverlay.hidden{display:none}
 #tapBtn{background:var(--accent);color:#050508;border:none;border-radius:16px;padding:22px 40px;font-size:20px;font-weight:800;cursor:pointer}
 #tapOverlay p{color:var(--muted);font-size:13px}
-#debugBox{margin:10px 20px;padding:10px;background:#0a0a15;border:1px solid var(--border);border-radius:8px;font-size:11px;color:#ffaa00;font-family:monospace;display:none;word-break:break-all}
+#debugBox{margin:10px 20px;padding:10px;background:#0a0a15;border:1px solid #333;border-radius:8px;font-size:11px;color:#ffaa00;font-family:monospace;display:none;word-break:break-all}
 </style>
 </head>
 <body>
@@ -122,6 +122,11 @@ let lastChunkKey = null, audioQueue = [], isPlaying = false;
 let volume = 1.0, totalChunks = 0, totalKb = 0;
 let audioUnlocked = false;
 
+// KEY FIX: Store the first chunk's bytes as the webm header/init segment
+// All subsequent chunks need to be prepended with this header to be playable
+let webmHeader = null;
+let chunkCount = 0;
+
 function dbg(msg) {
   const box = document.getElementById('debugBox');
   box.style.display = 'block';
@@ -133,7 +138,6 @@ function dbg(msg) {
 document.getElementById('tapBtn').addEventListener('click', async () => {
   try {
     const AudioCtx = window.AudioContext || window.webkitAudioContext;
-    if (!AudioCtx) { dbg('No AudioContext support'); return; }
     window._actx = new AudioCtx();
     const buf = window._actx.createBuffer(1, 1, 22050);
     const src = window._actx.createBufferSource();
@@ -169,13 +173,13 @@ document.getElementById('connectBtn').addEventListener('click', async () => {
   try {
     const r = await Promise.race([
       fetch(`${DB}/.json?shallow=true`),
-      new Promise((_,rej) => setTimeout(() => rej(new Error('Timeout 8s')), 8000))
+      new Promise((_,rej) => setTimeout(() => rej(new Error('Timeout')), 8000))
     ]);
     if (!r.ok) throw new Error('HTTP ' + r.status);
   } catch(e) { showError('Cannot reach Firebase: ' + e.message); btn.disabled=false; btn.textContent='CONNECT'; return; }
   try {
     const meta = await fbGet(`sessions/${sessionId}/meta`);
-    if (!meta) { showError('Session not found. Check the code.'); btn.disabled=false; btn.textContent='CONNECT'; return; }
+    if (!meta) { showError('Session not found.'); btn.disabled=false; btn.textContent='CONNECT'; return; }
   } catch(e) { showError('Lookup failed: ' + e.message); btn.disabled=false; btn.textContent='CONNECT'; return; }
   startPolling();
 });
@@ -183,6 +187,7 @@ document.getElementById('connectBtn').addEventListener('click', async () => {
 function disconnect() {
   isConnected = false;
   if (pollInterval) { clearInterval(pollInterval); pollInterval = null; }
+  webmHeader = null; chunkCount = 0;
   document.getElementById('connBadge').textContent = 'DISCONNECTED';
   document.getElementById('connBadge').className = 'conn-badge';
   document.getElementById('connectBtn').className = 'connect-btn';
@@ -194,6 +199,7 @@ function disconnect() {
 
 function startPolling() {
   isConnected = true; lastChunkKey = null; audioQueue = []; isPlaying = false;
+  webmHeader = null; chunkCount = 0;
   document.getElementById('connBadge').textContent = '● LIVE';
   document.getElementById('connBadge').className = 'conn-badge live';
   document.getElementById('connectBtn').className = 'connect-btn connected';
@@ -214,13 +220,13 @@ async function pollChunks() {
     try {
       const params = lastChunkKey
         ? { orderBy:'"$key"', startAfter:`"${lastChunkKey}"`, limitToLast:'10' }
-        : { orderBy:'"$key"', limitToLast:'2' };
+        : { orderBy:'"$key"', limitToLast:'3' };
       chunks = await fbGet(`sessions/${sessionId}/chunks`, params);
     } catch {
       const all = await fbGet(`sessions/${sessionId}/chunks`);
       if (all && typeof all === 'object') {
         const keys = Object.keys(all).sort();
-        const nk = lastChunkKey ? keys.filter(k => k > lastChunkKey) : keys.slice(-2);
+        const nk = lastChunkKey ? keys.filter(k => k > lastChunkKey) : keys.slice(-3);
         chunks = {}; nk.forEach(k => { chunks[k] = all[k]; });
       }
     }
@@ -246,7 +252,14 @@ function enqueueChunk(chunk, key) {
   if (!isPlaying && audioUnlocked) playNext();
 }
 
-// ── Play — tries all mime types, shows real error ─────────────
+// ── The KEY fix: prepend webm header to each chunk ────────────
+function decodeBase64ToBytes(b64) {
+  const bin = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return bytes;
+}
+
 async function playNext() {
   if (audioQueue.length === 0) {
     isPlaying = false;
@@ -259,59 +272,57 @@ async function playNext() {
   updateStats();
   document.getElementById('audioDot').className = 'audio-dot playing';
   document.getElementById('audioMain').textContent = '▶ Playing';
-  document.getElementById('audioSub').textContent = `Chunk #${chunk.index||'?'} · ${((chunk.size||0)/1024).toFixed(1)}KB · ${chunk.mimeType||'?'}`;
+  document.getElementById('audioSub').textContent = `Chunk #${chunk.index||'?'} · ${((chunk.size||0)/1024).toFixed(1)}KB`;
 
   try {
-    const bin = atob(chunk.audio);
-    const bytes = new Uint8Array(bin.length);
-    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    const bytes = decodeBase64ToBytes(chunk.audio);
+    const mimeType = chunk.mimeType || 'audio/webm;codecs=opus';
+    chunkCount++;
 
-    // Try every possible mime type
-    const mimes = [...new Set([
-      chunk.mimeType,
-      'audio/webm;codecs=opus',
-      'audio/webm;codecs=vorbis',
-      'audio/webm',
-      'audio/ogg;codecs=opus',
-      'audio/ogg',
-      'audio/mpeg',
-      'audio/mp4',
-      ''
-    ])].filter(m => m !== undefined);
+    let playBytes;
 
-    let played = false;
-    let lastErr = '';
-    for (const mime of mimes) {
-      try {
-        const blob = new Blob([bytes], { type: mime || 'audio/webm' });
-        const url = URL.createObjectURL(blob);
-        await new Promise((resolve, reject) => {
-          const audio = new Audio();
-          audio.volume = volume;
-          audio.oncanplay = () => {};
-          audio.onended = () => { URL.revokeObjectURL(url); resolve(); };
-          audio.onerror = () => {
-            URL.revokeObjectURL(url);
-            const code = audio.error ? audio.error.code : '?';
-            const msg = audio.error ? audio.error.message : 'unknown';
-            reject(new Error(`[${mime}] code=${code} ${msg}`));
-          };
-          audio.src = url;
-          audio.play().catch(e => { URL.revokeObjectURL(url); reject(e); });
-        });
-        played = true;
-        dbg('✅ Played with: ' + mime);
-        break;
-      } catch(e) {
-        lastErr = e.message;
+    if (chunkCount === 1) {
+      // First chunk: save it as the header AND play it (it's complete)
+      webmHeader = bytes;
+      playBytes = bytes;
+      dbg('Saved webm header: ' + bytes.length + ' bytes');
+    } else {
+      // Subsequent chunks: prepend the header so Android can decode
+      if (webmHeader) {
+        const combined = new Uint8Array(webmHeader.length + bytes.length);
+        combined.set(webmHeader, 0);
+        combined.set(bytes, webmHeader.length);
+        playBytes = combined;
+      } else {
+        playBytes = bytes;
       }
     }
 
-    if (played) { markHistoryPlayed(key); }
-    else { dbg('❌ All failed. Last: ' + lastErr); markHistoryError(key); }
+    const blob = new Blob([playBytes], { type: mimeType });
+    const url = URL.createObjectURL(blob);
+
+    await new Promise((resolve, reject) => {
+      const audio = new Audio();
+      audio.volume = volume;
+      audio.onended = () => { URL.revokeObjectURL(url); resolve(); };
+      audio.onerror = () => {
+        URL.revokeObjectURL(url);
+        const code = audio.error?.code;
+        const msg = audio.error?.message || 'unknown';
+        reject(new Error(`code=${code} ${msg}`));
+      };
+      audio.src = url;
+      audio.play().catch(e => { URL.revokeObjectURL(url); reject(e); });
+    });
+
+    markHistoryPlayed(key);
+    dbg('✅ chunk ' + chunkCount + ' played OK');
+
   } catch(e) {
-    dbg('Fatal: ' + e.message);
+    dbg('❌ chunk ' + chunkCount + ': ' + e.message);
     markHistoryError(key);
+    // If first chunk failed, reset header so we retry on next chunk
+    if (chunkCount === 1) { webmHeader = null; chunkCount = 0; }
   }
   playNext();
 }
@@ -343,6 +354,7 @@ function markHistoryError(key) {
 document.getElementById('clearBtn').addEventListener('click', () => {
   document.getElementById('historyList').innerHTML = '<div class="empty-msg">No audio received yet</div>';
   document.getElementById('debugBox').style.display = 'none';
+  webmHeader = null; chunkCount = 0;
 });
 document.getElementById('volSlider').addEventListener('input', function() {
   volume = this.value / 100;
