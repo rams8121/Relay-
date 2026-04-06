@@ -310,22 +310,27 @@ async function playNext() {
   document.getElementById('audioSub').textContent = `Chunk #${chunk.index || '?'} · ${((chunk.size||0)/1024).toFixed(1)}KB`;
 
   try {
-    const ctx = getAudioCtx();
+    const mimeType = chunk.mimeType || 'audio/webm;codecs=opus';
     const binaryStr = atob(chunk.audio);
     const bytes = new Uint8Array(binaryStr.length);
     for (let i = 0; i < binaryStr.length; i++) bytes[i] = binaryStr.charCodeAt(i);
+    const blob = new Blob([bytes], { type: mimeType });
+    const url = URL.createObjectURL(blob);
 
-    const audioBuffer = await ctx.decodeAudioData(bytes.buffer.slice(0));
-    const source = ctx.createBufferSource();
-    const gainNode = ctx.createGain();
-    gainNode.gain.value = volume;
-    source.buffer = audioBuffer;
-    source.connect(gainNode);
-    gainNode.connect(ctx.destination);
-    source.onended = () => { markHistoryPlayed(key); playNext(); };
-    source.start(0);
+    const audio = new Audio();
+    audio.volume = volume;
+    audio.src = url;
+
+    await new Promise((resolve, reject) => {
+      audio.onended = () => { URL.revokeObjectURL(url); resolve(); };
+      audio.onerror = (e) => { URL.revokeObjectURL(url); reject(e); };
+      audio.play().catch(reject);
+    });
+
+    markHistoryPlayed(key);
+    playNext();
   } catch(e) {
-    console.error('Decode/play error:', e);
+    console.error('Play error:', e);
     markHistoryError(key);
     playNext();
   }
@@ -395,4 +400,4 @@ window.addEventListener('load', () => {
 });
 </script>
 </body>
-</html>
+  </html>
