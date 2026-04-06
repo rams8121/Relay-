@@ -122,10 +122,12 @@ let lastChunkKey = null, audioQueue = [], isPlaying = false;
 let volume = 1.0, totalChunks = 0, totalKb = 0;
 let audioUnlocked = false;
 
-// KEY FIX: Store the first chunk's bytes as the webm header/init segment
-// All subsequent chunks need to be prepended with this header to be playable
-let webmHeader = null;
-let chunkCount = 0;
+// AudioContext for decodeAudioData — works on Android with any format
+let audioCtx = null;
+function getAudioCtx() {
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  return audioCtx;
+}
 
 function dbg(msg) {
   const box = document.getElementById('debugBox');
@@ -137,14 +139,13 @@ function dbg(msg) {
 // ── Tap to unlock ─────────────────────────────────────────────
 document.getElementById('tapBtn').addEventListener('click', async () => {
   try {
-    const AudioCtx = window.AudioContext || window.webkitAudioContext;
-    window._actx = new AudioCtx();
-    const buf = window._actx.createBuffer(1, 1, 22050);
-    const src = window._actx.createBufferSource();
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const buf = audioCtx.createBuffer(1, 1, 22050);
+    const src = audioCtx.createBufferSource();
     src.buffer = buf;
-    src.connect(window._actx.destination);
+    src.connect(audioCtx.destination);
     src.start(0);
-    if (window._actx.state === 'suspended') await window._actx.resume();
+    if (audioCtx.state === 'suspended') await audioCtx.resume();
     audioUnlocked = true;
     document.getElementById('tapOverlay').classList.add('hidden');
     showToast('Audio unlocked ✅');
@@ -187,7 +188,6 @@ document.getElementById('connectBtn').addEventListener('click', async () => {
 function disconnect() {
   isConnected = false;
   if (pollInterval) { clearInterval(pollInterval); pollInterval = null; }
-  webmHeader = null; chunkCount = 0;
   document.getElementById('connBadge').textContent = 'DISCONNECTED';
   document.getElementById('connBadge').className = 'conn-badge';
   document.getElementById('connectBtn').className = 'connect-btn';
@@ -199,7 +199,6 @@ function disconnect() {
 
 function startPolling() {
   isConnected = true; lastChunkKey = null; audioQueue = []; isPlaying = false;
-  webmHeader = null; chunkCount = 0;
   document.getElementById('connBadge').textContent = '● LIVE';
   document.getElementById('connBadge').className = 'conn-badge live';
   document.getElementById('connectBtn').className = 'connect-btn connected';
@@ -256,14 +255,7 @@ function enqueueChunk(chunk, key) {
   if (!isPlaying && audioUnlocked) playNext();
 }
 
-// ── The KEY fix: prepend webm header to each chunk ────────────
-function decodeBase64ToBytes(b64) {
-  const bin = atob(b64);
-  const bytes = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-  return bytes;
-}
-
+// ── Playback via AudioContext.decodeAudioData (works on Android) ─
 async function playNext() {
   if (audioQueue.length === 0) {
     isPlaying = false;
@@ -279,54 +271,34 @@ async function playNext() {
   document.getElementById('audioSub').textContent = `Chunk #${chunk.index||'?'} · ${((chunk.size||0)/1024).toFixed(1)}KB`;
 
   try {
-    const bytes = decodeBase64ToBytes(chunk.audio);
-    const mimeType = chunk.mimeType || 'audio/webm;codecs=opus';
-    chunkCount++;
+    // Decode base64 → ArrayBuffer
+    const bin = atob(chunk.audio);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
 
-    let playBytes;
+    // decodeAudioData works on Android for ogg/opus and webm/opus
+    const ctx = getAudioCtx();
+    const audioBuffer = await ctx.decodeAudioData(bytes.buffer.slice(0));
 
-    if (chunkCount === 1) {
-      // First chunk: save it as the header AND play it (it's complete)
-      webmHeader = bytes;
-      playBytes = bytes;
-      dbg('Saved webm header: ' + bytes.length + ' bytes');
-    } else {
-      // Subsequent chunks: prepend the header so Android can decode
-      if (webmHeader) {
-        const combined = new Uint8Array(webmHeader.length + bytes.length);
-        combined.set(webmHeader, 0);
-        combined.set(bytes, webmHeader.length);
-        playBytes = combined;
-      } else {
-        playBytes = bytes;
-      }
-    }
+    // Play through gain node for volume control
+    const source = ctx.createBufferSource();
+    const gain = ctx.createGain();
+    gain.gain.value = volume;
+    source.buffer = audioBuffer;
+    source.connect(gain);
+    gain.connect(ctx.destination);
 
-    const blob = new Blob([playBytes], { type: mimeType });
-    const url = URL.createObjectURL(blob);
-
-    await new Promise((resolve, reject) => {
-      const audio = new Audio();
-      audio.volume = volume;
-      audio.onended = () => { URL.revokeObjectURL(url); resolve(); };
-      audio.onerror = () => {
-        URL.revokeObjectURL(url);
-        const code = audio.error?.code;
-        const msg = audio.error?.message || 'unknown';
-        reject(new Error(`code=${code} ${msg}`));
-      };
-      audio.src = url;
-      audio.play().catch(e => { URL.revokeObjectURL(url); reject(e); });
+    await new Promise(resolve => {
+      source.onended = resolve;
+      source.start(0);
     });
 
     markHistoryPlayed(key);
-    dbg('✅ chunk ' + chunkCount + ' played OK');
+    dbg('✅ chunk ' + (chunk.index||'?') + ' played OK');
 
   } catch(e) {
-    dbg('❌ chunk ' + chunkCount + ': ' + e.message);
+    dbg('❌ ' + e.message);
     markHistoryError(key);
-    // If first chunk failed, reset header so we retry on next chunk
-    if (chunkCount === 1) { webmHeader = null; chunkCount = 0; }
   }
   playNext();
 }
@@ -358,7 +330,6 @@ function markHistoryError(key) {
 document.getElementById('clearBtn').addEventListener('click', () => {
   document.getElementById('historyList').innerHTML = '<div class="empty-msg">No audio received yet</div>';
   document.getElementById('debugBox').style.display = 'none';
-  webmHeader = null; chunkCount = 0;
 });
 document.getElementById('volSlider').addEventListener('input', function() {
   volume = this.value / 100;
