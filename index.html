@@ -8,8 +8,8 @@
 :root{--bg:#07070e;--surface:#10101a;--border:#1a1a28;--accent:#00ff88;--accent2:#00aaff;--danger:#ff4055;--text:#dde0f0;--muted:#4a4a65}
 *{margin:0;padding:0;box-sizing:border-box}
 body{background:var(--bg);color:var(--text);font-family:'Segoe UI',system-ui,sans-serif;min-height:100vh}
-.header{padding:16px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;background:var(--bg)}
-.hlogo{font-weight:800;font-size:16px;letter-spacing:.05em}.hlogo span{color:var(--accent)}
+.header{padding:16px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between}
+.hlogo{font-weight:800;font-size:16px}.hlogo span{color:var(--accent)}
 .conn-badge{font-size:11px;padding:3px 9px;border-radius:20px;border:1px solid var(--border);color:var(--muted);font-family:monospace}
 .conn-badge.live{border-color:var(--accent);color:var(--accent);background:rgba(0,255,136,.08)}
 .conn-badge.err{border-color:var(--danger);color:var(--danger)}
@@ -20,7 +20,7 @@ body{background:var(--bg);color:var(--text);font-family:'Segoe UI',system-ui,san
 .connect-btn{background:var(--accent);color:#050508;border:none;border-radius:8px;padding:10px 18px;font-size:13px;font-weight:700;cursor:pointer}
 .connect-btn.connected{background:transparent;color:var(--danger);border:1px solid var(--danger)}
 .connect-btn:disabled{opacity:.5;cursor:not-allowed}
-.err-box{margin-top:10px;padding:10px 14px;background:rgba(255,64,85,.12);border:1px solid #ff4055;border-radius:8px;color:#ff6070;font-size:13px;line-height:1.5}
+.err-box{margin-top:10px;padding:10px 14px;background:rgba(255,64,85,.12);border:1px solid #ff4055;border-radius:8px;color:#ff6070;font-size:12px;line-height:1.5;word-break:break-all}
 .audio-status{padding:14px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px}
 .audio-dot{width:10px;height:10px;border-radius:50%;background:var(--muted);flex-shrink:0}
 .audio-dot.playing{background:var(--accent);box-shadow:0 0 10px var(--accent)}
@@ -36,31 +36,29 @@ body{background:var(--bg);color:var(--text);font-family:'Segoe UI',system-ui,san
 .history-section{padding:12px 20px}
 .history-title{display:flex;justify-content:space-between;align-items:center;font-size:11px;font-weight:700;letter-spacing:.08em;margin-bottom:8px}
 .clear-btn{background:transparent;border:1px solid var(--border);border-radius:6px;padding:3px 10px;font-size:11px;color:var(--muted);cursor:pointer}
-.history-list{display:flex;flex-direction:column;gap:4px}
+.history-list{display:flex;flex-direction:column;gap:4px;max-height:300px;overflow-y:auto}
 .history-item{display:flex;gap:8px;align-items:center;font-size:12px;padding:6px 8px;background:var(--surface);border-radius:6px}
-.hi-time{color:var(--muted);font-family:monospace}
+.hi-time{color:var(--muted);font-family:monospace;font-size:10px}
 .hi-size{color:var(--accent2);font-family:monospace}
 .hi-status{margin-left:auto;font-size:11px}
 .hi-status.buffered{color:var(--muted)}
 .hi-status.played{color:var(--accent)}
 .hi-status.error{color:var(--danger)}
 .empty-msg{color:var(--muted);font-size:13px;text-align:center;padding:20px}
-.vol-row{display:flex;align-items:center;gap:10px;padding:12px 20px;border-top:1px solid var(--border)}
+.vol-row{display:flex;align-items:center;gap:10px;padding:12px 20px;border-top:1px solid var(--border);margin-top:12px}
 .vol-row input{flex:1}
 .vol-row div{font-size:12px;color:var(--muted)}
-.toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#1a1a2e;border:1px solid var(--border);border-radius:8px;padding:8px 16px;font-size:13px;opacity:0;transition:opacity .3s;pointer-events:none;white-space:nowrap}
+.toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#1a1a2e;border:1px solid var(--border);border-radius:8px;padding:8px 16px;font-size:13px;opacity:0;transition:opacity .3s;pointer-events:none;white-space:nowrap;z-index:9999}
 .toast.show{opacity:1}
-
-/* Tap-to-hear overlay */
-#tapOverlay{position:fixed;inset:0;background:rgba(7,7,14,0.92);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:999;gap:16px}
+#tapOverlay{position:fixed;inset:0;background:rgba(7,7,14,0.95);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:999;gap:16px}
 #tapOverlay.hidden{display:none}
-#tapBtn{background:var(--accent);color:#050508;border:none;border-radius:16px;padding:22px 40px;font-size:20px;font-weight:800;cursor:pointer;letter-spacing:.05em}
+#tapBtn{background:var(--accent);color:#050508;border:none;border-radius:16px;padding:22px 40px;font-size:20px;font-weight:800;cursor:pointer}
 #tapOverlay p{color:var(--muted);font-size:13px}
+#debugBox{margin:10px 20px;padding:10px;background:#0a0a15;border:1px solid var(--border);border-radius:8px;font-size:11px;color:#ffaa00;font-family:monospace;display:none;word-break:break-all}
 </style>
 </head>
 <body>
 
-<!-- Tap-to-hear overlay — dismissed on tap, then flushes queue -->
 <div id="tapOverlay">
   <button id="tapBtn">🔊 TAP TO HEAR AUDIO</button>
   <p>Browser requires a tap to enable audio</p>
@@ -70,6 +68,7 @@ body{background:var(--bg);color:var(--text);font-family:'Segoe UI',system-ui,san
   <div class="hlogo">RELAY<span>.IO</span></div>
   <div class="conn-badge" id="connBadge">DISCONNECTED</div>
 </div>
+
 <div class="session-form">
   <div class="session-label">Session ID (from laptop)</div>
   <div class="session-row">
@@ -79,6 +78,7 @@ body{background:var(--bg);color:var(--text);font-family:'Segoe UI',system-ui,san
   </div>
   <div id="errBox" class="err-box" style="display:none"></div>
 </div>
+
 <div class="audio-status">
   <div class="audio-dot" id="audioDot"></div>
   <div class="audio-info">
@@ -86,12 +86,16 @@ body{background:var(--bg);color:var(--text);font-family:'Segoe UI',system-ui,san
     <div class="audio-sub" id="audioSub">Connect to a session to begin</div>
   </div>
 </div>
+
 <div class="stats-row">
   <div class="stat-box"><div class="stat-num" id="statChunks">0</div><div class="stat-lbl">CHUNKS</div></div>
   <div class="stat-box"><div class="stat-num" id="statKb">0</div><div class="stat-lbl">KB HEARD</div></div>
   <div class="stat-box"><div class="stat-num" id="statQueue">0</div><div class="stat-lbl">QUEUED</div></div>
 </div>
+
 <div class="latency-row">⏱ Latency: <span id="latencyVal">—</span></div>
+<div id="debugBox"></div>
+
 <div class="history-section">
   <div class="history-title">
     <span>📻 RECEIVED CHUNKS</span>
@@ -101,108 +105,78 @@ body{background:var(--bg);color:var(--text);font-family:'Segoe UI',system-ui,san
     <div class="empty-msg">No audio received yet</div>
   </div>
 </div>
+
 <div class="vol-row">
   <div>🔊</div>
   <input type="range" id="volSlider" min="0" max="100" value="100"/>
   <div id="volVal">100%</div>
 </div>
+
 <div class="toast" id="toast"></div>
 
 <script>
-// ─── Firebase Config ───────────────────────────────────────────
-const FIREBASE_CONFIG = {
-  databaseURL: "https://rama-20456-default-rtdb.firebaseio.com"
-};
+const DB = "https://rama-20456-default-rtdb.firebaseio.com";
 
-// ─── State ────────────────────────────────────────────────────
-let isConnected  = false;
-let sessionId    = null;
-let pollInterval = null;
-let lastChunkKey = null;
-let audioQueue   = [];
-let isPlaying    = false;
-let volume       = 1.0;
-let totalChunks  = 0;
-let totalKb      = 0;
-let audioCtx     = null;
-let audioUnlocked = false;  // FIX: track whether user has tapped
+let isConnected = false, sessionId = null, pollInterval = null;
+let lastChunkKey = null, audioQueue = [], isPlaying = false;
+let volume = 1.0, totalChunks = 0, totalKb = 0;
+let audioUnlocked = false;
 
-// ─── AudioContext — init on tap ────────────────────────────────
-function getAudioCtx() {
-  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-  return audioCtx;
+function dbg(msg) {
+  const box = document.getElementById('debugBox');
+  box.style.display = 'block';
+  box.textContent = '🐛 ' + msg;
+  console.log('[RELAY]', msg);
 }
 
-// ─── TAP OVERLAY — FIX: unlock audio then flush queue ─────────
+// ── Tap to unlock ─────────────────────────────────────────────
 document.getElementById('tapBtn').addEventListener('click', async () => {
   try {
-    const ctx = getAudioCtx();
-    // Play a silent buffer — this is what actually unlocks audio on iOS/Android
-    const buf = ctx.createBuffer(1, 1, 22050);
-    const src = ctx.createBufferSource();
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    if (!AudioCtx) { dbg('No AudioContext support'); return; }
+    window._actx = new AudioCtx();
+    const buf = window._actx.createBuffer(1, 1, 22050);
+    const src = window._actx.createBufferSource();
     src.buffer = buf;
-    src.connect(ctx.destination);
+    src.connect(window._actx.destination);
     src.start(0);
-    if (ctx.state === 'suspended') await ctx.resume();
+    if (window._actx.state === 'suspended') await window._actx.resume();
     audioUnlocked = true;
     document.getElementById('tapOverlay').classList.add('hidden');
-    // If chunks already arrived while waiting, start playing them now
+    showToast('Audio unlocked ✅');
     if (audioQueue.length > 0 && !isPlaying) playNext();
-    showToast('Audio unlocked 🎧');
-  } catch(e) {
-    showToast('Tap failed: ' + e.message);
-  }
+  } catch(e) { dbg('Unlock error: ' + e.message); }
 });
 
-// ─── Firebase REST ─────────────────────────────────────────────
+// ── Firebase ──────────────────────────────────────────────────
 async function fbGet(path, params = {}) {
-  const url = new URL(`${FIREBASE_CONFIG.databaseURL}/${path}.json`);
-  Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, v));
-  const res = await fetch(url.toString());
-  if (!res.ok) throw new Error(`Firebase fetch failed: ${res.status}`);
-  return res.json();
+  const url = new URL(`${DB}/${path}.json`);
+  Object.entries(params).forEach(([k,v]) => url.searchParams.set(k, v));
+  const r = await fetch(url.toString());
+  if (!r.ok) throw new Error('FB ' + r.status);
+  return r.json();
 }
 
-// ─── Connect / Disconnect ──────────────────────────────────────
+// ── Connect ───────────────────────────────────────────────────
 document.getElementById('connectBtn').addEventListener('click', async () => {
   if (isConnected) { disconnect(); return; }
-
   const sid = document.getElementById('sessionInput').value.trim().toUpperCase();
-  if (!sid) { showError('Enter a session ID first.'); return; }
-
+  if (!sid) { showError('Enter session ID'); return; }
   sessionId = sid;
   const btn = document.getElementById('connectBtn');
-  btn.disabled = true;
-  btn.textContent = 'CONNECTING...';
+  btn.disabled = true; btn.textContent = 'CONNECTING...';
   clearError();
-
-  // Test Firebase reachability
   try {
-    const testRes = await Promise.race([
-      fetch(`${FIREBASE_CONFIG.databaseURL}/.json?shallow=true`),
-      new Promise((_, rej) => setTimeout(() => rej(new Error('Timed out after 8s — check WiFi/mobile data')), 8000))
+    const r = await Promise.race([
+      fetch(`${DB}/.json?shallow=true`),
+      new Promise((_,rej) => setTimeout(() => rej(new Error('Timeout 8s')), 8000))
     ]);
-    if (!testRes.ok) throw new Error(`HTTP ${testRes.status}`);
-  } catch(e) {
-    showError('Cannot reach Firebase: ' + e.message);
-    btn.disabled = false; btn.textContent = 'CONNECT';
-    return;
-  }
-
-  // Verify session exists
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+  } catch(e) { showError('Cannot reach Firebase: ' + e.message); btn.disabled=false; btn.textContent='CONNECT'; return; }
   try {
     const meta = await fbGet(`sessions/${sessionId}/meta`);
-    if (!meta) {
-      showError(`Session "${sessionId}" not found. Make sure the laptop relay is running.`);
-      btn.disabled = false; btn.textContent = 'CONNECT';
-      return;
-    }
-  } catch(e) {
-    showError('Session lookup failed: ' + e.message);
-    btn.disabled = false; btn.textContent = 'CONNECT';
-    return;
-  }
-
+    if (!meta) { showError('Session not found. Check the code.'); btn.disabled=false; btn.textContent='CONNECT'; return; }
+  } catch(e) { showError('Lookup failed: ' + e.message); btn.disabled=false; btn.textContent='CONNECT'; return; }
   startPolling();
 });
 
@@ -218,22 +192,16 @@ function disconnect() {
   document.getElementById('audioMain').textContent = 'Disconnected';
 }
 
-// ─── Polling ───────────────────────────────────────────────────
 function startPolling() {
-  isConnected = true;
-  lastChunkKey = null;
-  audioQueue = [];
-  isPlaying = false;
-
+  isConnected = true; lastChunkKey = null; audioQueue = []; isPlaying = false;
   document.getElementById('connBadge').textContent = '● LIVE';
   document.getElementById('connBadge').className = 'conn-badge live';
   document.getElementById('connectBtn').className = 'connect-btn connected';
   document.getElementById('connectBtn').textContent = 'DISCONNECT';
   document.getElementById('connectBtn').disabled = false;
-  document.getElementById('audioMain').textContent = 'Listening for audio...';
+  document.getElementById('audioMain').textContent = 'Listening...';
   document.getElementById('audioSub').textContent = `Session: ${sessionId}`;
   document.getElementById('audioDot').className = 'audio-dot buffering';
-
   showToast('Connected! 🎧');
   pollInterval = setInterval(pollChunks, 1000);
   pollChunks();
@@ -245,159 +213,151 @@ async function pollChunks() {
     let chunks = null;
     try {
       const params = lastChunkKey
-        ? { orderBy: '"$key"', startAfter: `"${lastChunkKey}"`, limitToLast: '10' }
-        : { orderBy: '"$key"', limitToLast: '2' };
+        ? { orderBy:'"$key"', startAfter:`"${lastChunkKey}"`, limitToLast:'10' }
+        : { orderBy:'"$key"', limitToLast:'2' };
       chunks = await fbGet(`sessions/${sessionId}/chunks`, params);
     } catch {
-      const allChunks = await fbGet(`sessions/${sessionId}/chunks`);
-      if (allChunks && typeof allChunks === 'object') {
-        const allKeys = Object.keys(allChunks).sort();
-        const newKeys = lastChunkKey ? allKeys.filter(k => k > lastChunkKey) : allKeys.slice(-2);
-        chunks = {};
-        newKeys.forEach(k => { chunks[k] = allChunks[k]; });
+      const all = await fbGet(`sessions/${sessionId}/chunks`);
+      if (all && typeof all === 'object') {
+        const keys = Object.keys(all).sort();
+        const nk = lastChunkKey ? keys.filter(k => k > lastChunkKey) : keys.slice(-2);
+        chunks = {}; nk.forEach(k => { chunks[k] = all[k]; });
       }
     }
-
     if (chunks && typeof chunks === 'object') {
       const keys = Object.keys(chunks).sort();
-      for (const key of keys) {
-        enqueueChunk(chunks[key], key);
-        lastChunkKey = key;
-      }
-      if (keys.length > 0) {
-        const latest = chunks[keys[keys.length - 1]];
-        if (latest.ts) document.getElementById('latencyVal').textContent = (Date.now() - latest.ts) + 'ms';
-      }
+      for (const k of keys) { enqueueChunk(chunks[k], k); lastChunkKey = k; }
+      if (keys.length > 0 && chunks[keys[keys.length-1]].ts)
+        document.getElementById('latencyVal').textContent = (Date.now() - chunks[keys[keys.length-1]].ts) + 'ms';
     }
-
     const hb = await fbGet(`sessions/${sessionId}/heartbeat`);
-    if (hb && typeof hb === 'number') {
-      const age = Date.now() - hb;
-      document.getElementById('connBadge').textContent = age > 10000 ? '⚠ STALE' : '● LIVE';
-      document.getElementById('connBadge').className = 'conn-badge ' + (age > 10000 ? 'err' : 'live');
+    if (hb) {
+      const stale = Date.now() - hb > 10000;
+      document.getElementById('connBadge').textContent = stale ? '⚠ STALE' : '● LIVE';
+      document.getElementById('connBadge').className = 'conn-badge ' + (stale ? 'err' : 'live');
     }
-  } catch(e) {
-    console.error('Poll error:', e);
-  }
+  } catch(e) { console.error('Poll:', e); }
 }
 
-// ─── Audio Queue ───────────────────────────────────────────────
 function enqueueChunk(chunk, key) {
-  audioQueue.push({ chunk, key });
-  totalChunks++;
-  totalKb += (chunk.size || 0) / 1024;
-  addHistoryItem(chunk, key);
-  updateStats();
-  // FIX: only start playing if audio is already unlocked
+  audioQueue.push({chunk, key});
+  totalChunks++; totalKb += (chunk.size||0)/1024;
+  addHistoryItem(chunk, key); updateStats();
   if (!isPlaying && audioUnlocked) playNext();
 }
 
+// ── Play — tries all mime types, shows real error ─────────────
 async function playNext() {
   if (audioQueue.length === 0) {
     isPlaying = false;
     document.getElementById('audioDot').className = 'audio-dot buffering';
     document.getElementById('audioMain').textContent = 'Waiting for audio...';
-    updateStats();
-    return;
+    updateStats(); return;
   }
-
   isPlaying = true;
-  const { chunk, key } = audioQueue.shift();
+  const {chunk, key} = audioQueue.shift();
   updateStats();
-
   document.getElementById('audioDot').className = 'audio-dot playing';
-  document.getElementById('audioMain').textContent = '▶ Playing audio';
-  document.getElementById('audioSub').textContent = `Chunk #${chunk.index || '?'} · ${((chunk.size||0)/1024).toFixed(1)}KB`;
+  document.getElementById('audioMain').textContent = '▶ Playing';
+  document.getElementById('audioSub').textContent = `Chunk #${chunk.index||'?'} · ${((chunk.size||0)/1024).toFixed(1)}KB · ${chunk.mimeType||'?'}`;
 
   try {
-    const mimeType = chunk.mimeType || 'audio/webm;codecs=opus';
-    const binaryStr = atob(chunk.audio);
-    const bytes = new Uint8Array(binaryStr.length);
-    for (let i = 0; i < binaryStr.length; i++) bytes[i] = binaryStr.charCodeAt(i);
-    const blob = new Blob([bytes], { type: mimeType });
-    const url = URL.createObjectURL(blob);
+    const bin = atob(chunk.audio);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
 
-    const audio = new Audio();
-    audio.volume = volume;
-    audio.src = url;
+    // Try every possible mime type
+    const mimes = [...new Set([
+      chunk.mimeType,
+      'audio/webm;codecs=opus',
+      'audio/webm;codecs=vorbis',
+      'audio/webm',
+      'audio/ogg;codecs=opus',
+      'audio/ogg',
+      'audio/mpeg',
+      'audio/mp4',
+      ''
+    ])].filter(m => m !== undefined);
 
-    await new Promise((resolve, reject) => {
-      audio.onended = () => { URL.revokeObjectURL(url); resolve(); };
-      audio.onerror = (e) => { URL.revokeObjectURL(url); reject(e); };
-      audio.play().catch(reject);
-    });
+    let played = false;
+    let lastErr = '';
+    for (const mime of mimes) {
+      try {
+        const blob = new Blob([bytes], { type: mime || 'audio/webm' });
+        const url = URL.createObjectURL(blob);
+        await new Promise((resolve, reject) => {
+          const audio = new Audio();
+          audio.volume = volume;
+          audio.oncanplay = () => {};
+          audio.onended = () => { URL.revokeObjectURL(url); resolve(); };
+          audio.onerror = () => {
+            URL.revokeObjectURL(url);
+            const code = audio.error ? audio.error.code : '?';
+            const msg = audio.error ? audio.error.message : 'unknown';
+            reject(new Error(`[${mime}] code=${code} ${msg}`));
+          };
+          audio.src = url;
+          audio.play().catch(e => { URL.revokeObjectURL(url); reject(e); });
+        });
+        played = true;
+        dbg('✅ Played with: ' + mime);
+        break;
+      } catch(e) {
+        lastErr = e.message;
+      }
+    }
 
-    markHistoryPlayed(key);
-    playNext();
+    if (played) { markHistoryPlayed(key); }
+    else { dbg('❌ All failed. Last: ' + lastErr); markHistoryError(key); }
   } catch(e) {
-    console.error('Play error:', e);
+    dbg('Fatal: ' + e.message);
     markHistoryError(key);
-    playNext();
   }
+  playNext();
 }
 
-// ─── Stats ─────────────────────────────────────────────────────
 function updateStats() {
   document.getElementById('statChunks').textContent = totalChunks;
   document.getElementById('statKb').textContent = totalKb.toFixed(0);
   document.getElementById('statQueue').textContent = audioQueue.length;
 }
-
-// ─── History ───────────────────────────────────────────────────
 function addHistoryItem(chunk, key) {
   const list = document.getElementById('historyList');
   const empty = list.querySelector('.empty-msg');
   if (empty) empty.remove();
-  const now = new Date().toLocaleTimeString('en-IN', { hour:'2-digit', minute:'2-digit', second:'2-digit' });
+  const now = new Date().toLocaleTimeString();
   const div = document.createElement('div');
   div.className = 'history-item';
-  div.id = 'hi_' + key;
-  div.innerHTML = `<span class="hi-time">${now}</span><span class="hi-size">${((chunk.size||0)/1024).toFixed(1)}KB</span><span class="hi-status buffered">● BUFFERED</span>`;
+  div.innerHTML = `<span class="hi-time">${now}</span><span class="hi-size">${((chunk.size||0)/1024).toFixed(1)}KB</span><span class="hi-status buffered" id="hs_${key}">● BUFFERED</span>`;
   list.insertBefore(div, list.firstChild);
   if (list.children.length > 40) list.removeChild(list.lastChild);
 }
 function markHistoryPlayed(key) {
-  const el = document.getElementById('hi_' + key);
-  if (el) { const s = el.querySelector('.hi-status'); if (s) { s.textContent = '✓ PLAYED'; s.className = 'hi-status played'; } }
+  const s = document.getElementById('hs_' + key);
+  if (s) { s.textContent = '✓ PLAYED'; s.className = 'hi-status played'; }
 }
 function markHistoryError(key) {
-  const el = document.getElementById('hi_' + key);
-  if (el) { const s = el.querySelector('.hi-status'); if (s) { s.textContent = '✗ ERROR'; s.className = 'hi-status error'; } }
+  const s = document.getElementById('hs_' + key);
+  if (s) { s.textContent = '✗ ERROR'; s.className = 'hi-status error'; }
 }
-
 document.getElementById('clearBtn').addEventListener('click', () => {
   document.getElementById('historyList').innerHTML = '<div class="empty-msg">No audio received yet</div>';
+  document.getElementById('debugBox').style.display = 'none';
 });
-
-// ─── Volume ────────────────────────────────────────────────────
 document.getElementById('volSlider').addEventListener('input', function() {
   volume = this.value / 100;
   document.getElementById('volVal').textContent = this.value + '%';
 });
-
-// ─── Helpers ───────────────────────────────────────────────────
-function showError(msg) {
-  const b = document.getElementById('errBox');
-  b.textContent = '⚠ ' + msg;
-  b.style.display = 'block';
-}
-function clearError() {
-  const b = document.getElementById('errBox');
-  b.style.display = 'none';
-  b.textContent = '';
-}
+function showError(msg) { const b=document.getElementById('errBox'); b.textContent='⚠ '+msg; b.style.display='block'; }
+function clearError() { const b=document.getElementById('errBox'); b.style.display='none'; b.textContent=''; }
 function showToast(msg) {
-  const t = document.getElementById('toast');
-  t.textContent = msg;
-  t.classList.add('show');
+  const t=document.getElementById('toast'); t.textContent=msg; t.classList.add('show');
   setTimeout(() => t.classList.remove('show'), 2500);
 }
-
-// ─── Auto-connect from URL param ──────────────────────────────
 window.addEventListener('load', () => {
   const s = new URLSearchParams(window.location.search).get('session');
   if (s) document.getElementById('sessionInput').value = s.toUpperCase();
 });
 </script>
 </body>
-  </html>
+</html>
