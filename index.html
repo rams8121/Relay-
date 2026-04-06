@@ -36,14 +36,13 @@ body{background:var(--bg);color:var(--text);font-family:'Segoe UI',system-ui,san
 .history-section{padding:12px 20px}
 .history-title{display:flex;justify-content:space-between;align-items:center;font-size:11px;font-weight:700;letter-spacing:.08em;margin-bottom:8px}
 .clear-btn{background:transparent;border:1px solid var(--border);border-radius:6px;padding:3px 10px;font-size:11px;color:var(--muted);cursor:pointer}
-.history-list{display:flex;flex-direction:column;gap:4px;max-height:260px;overflow-y:auto}
+.history-list{display:flex;flex-direction:column;gap:4px;max-height:250px;overflow-y:auto}
 .history-item{display:flex;gap:8px;align-items:center;font-size:12px;padding:6px 8px;background:var(--surface);border-radius:6px}
 .hi-time{color:var(--muted);font-family:monospace;font-size:10px}
 .hi-size{color:var(--accent2);font-family:monospace}
 .hi-status{margin-left:auto;font-size:11px}
 .hi-status.buffered{color:var(--muted)}
 .hi-status.played{color:var(--accent)}
-.hi-status.skipped{color:#666}
 .hi-status.error{color:var(--danger)}
 .empty-msg{color:var(--muted);font-size:13px;text-align:center;padding:20px}
 .vol-row{display:flex;align-items:center;gap:10px;padding:12px 20px;border-top:1px solid var(--border);margin-top:12px}
@@ -51,10 +50,19 @@ body{background:var(--bg);color:var(--text);font-family:'Segoe UI',system-ui,san
 .vol-row div{font-size:12px;color:var(--muted)}
 .toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#1a1a2e;border:1px solid var(--border);border-radius:8px;padding:8px 16px;font-size:13px;opacity:0;transition:opacity .3s;pointer-events:none;white-space:nowrap;z-index:9999}
 .toast.show{opacity:1}
-#dbg{padding:6px 20px;font-size:10px;color:#aaa;font-family:monospace;border-bottom:1px solid var(--border);word-break:break-all;min-height:20px}
+#tapOverlay{position:fixed;inset:0;background:rgba(7,7,14,0.95);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:999;gap:16px}
+#tapOverlay.hidden{display:none}
+#tapBtn{background:var(--accent);color:#050508;border:none;border-radius:16px;padding:22px 40px;font-size:20px;font-weight:800;cursor:pointer}
+#tapOverlay p{color:var(--muted);font-size:13px}
+#debugBox{margin:10px 20px;padding:10px;background:#0a0a15;border:1px solid #333;border-radius:8px;font-size:11px;color:#ffaa00;font-family:monospace;display:none;word-break:break-all}
 </style>
 </head>
 <body>
+
+<div id="tapOverlay">
+  <button id="tapBtn">🔊 TAP TO HEAR AUDIO</button>
+  <p>Browser requires a tap to enable audio</p>
+</div>
 
 <div class="header">
   <div class="hlogo">RELAY<span>.IO</span></div>
@@ -80,13 +88,13 @@ body{background:var(--bg);color:var(--text);font-family:'Segoe UI',system-ui,san
 </div>
 
 <div class="stats-row">
-  <div class="stat-box"><div class="stat-num" id="statChunks">0</div><div class="stat-lbl">PLAYED</div></div>
+  <div class="stat-box"><div class="stat-num" id="statChunks">0</div><div class="stat-lbl">CHUNKS</div></div>
   <div class="stat-box"><div class="stat-num" id="statKb">0</div><div class="stat-lbl">KB HEARD</div></div>
   <div class="stat-box"><div class="stat-num" id="statQueue">0</div><div class="stat-lbl">QUEUED</div></div>
 </div>
 
 <div class="latency-row">⏱ Latency: <span id="latencyVal">—</span></div>
-<div id="dbg">—</div>
+<div id="debugBox"></div>
 
 <div class="history-section">
   <div class="history-title">
@@ -108,25 +116,41 @@ body{background:var(--bg);color:var(--text);font-family:'Segoe UI',system-ui,san
 
 <script>
 const DB = "https://rama-20456-default-rtdb.firebaseio.com";
-const POLL_MS = 400;
 
 let isConnected = false, sessionId = null, pollInterval = null;
-let lastChunkKey = null;
-let audioQueue = [], isPlaying = false;
+let lastChunkKey = null, audioQueue = [], isPlaying = false;
 let volume = 1.0, totalChunks = 0, totalKb = 0;
+let audioUnlocked = false;
 
-// WebM header state
-// headerBytes  = the raw bytes of chunk index=0 (EBML+Tracks)
-// headerLocked = true once we have a good header that played successfully
-// We NEVER overwrite a locked header — errors on later chunks don't reset it
-let headerBytes  = null;
-let headerLocked = false;
-let chunksSinceHeader = 0; // how many chunks we've seen since header was set
+// KEY FIX: Store the first chunk's bytes as the webm header/init segment
+// All subsequent chunks need to be prepended with this header to be playable
+let webmHeader = null;
+let chunkCount = 0;
 
 function dbg(msg) {
-  document.getElementById('dbg').textContent = msg;
-  console.log('[R]', msg);
+  const box = document.getElementById('debugBox');
+  box.style.display = 'block';
+  box.textContent = '🐛 ' + msg;
+  console.log('[RELAY]', msg);
 }
+
+// ── Tap to unlock ─────────────────────────────────────────────
+document.getElementById('tapBtn').addEventListener('click', async () => {
+  try {
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    window._actx = new AudioCtx();
+    const buf = window._actx.createBuffer(1, 1, 22050);
+    const src = window._actx.createBufferSource();
+    src.buffer = buf;
+    src.connect(window._actx.destination);
+    src.start(0);
+    if (window._actx.state === 'suspended') await window._actx.resume();
+    audioUnlocked = true;
+    document.getElementById('tapOverlay').classList.add('hidden');
+    showToast('Audio unlocked ✅');
+    if (audioQueue.length > 0 && !isPlaying) playNext();
+  } catch(e) { dbg('Unlock error: ' + e.message); }
+});
 
 // ── Firebase ──────────────────────────────────────────────────
 async function fbGet(path, params = {}) {
@@ -146,7 +170,6 @@ document.getElementById('connectBtn').addEventListener('click', async () => {
   const btn = document.getElementById('connectBtn');
   btn.disabled = true; btn.textContent = 'CONNECTING...';
   clearError();
-
   try {
     const r = await Promise.race([
       fetch(`${DB}/.json?shallow=true`),
@@ -154,20 +177,17 @@ document.getElementById('connectBtn').addEventListener('click', async () => {
     ]);
     if (!r.ok) throw new Error('HTTP ' + r.status);
   } catch(e) { showError('Cannot reach Firebase: ' + e.message); btn.disabled=false; btn.textContent='CONNECT'; return; }
-
   try {
     const meta = await fbGet(`sessions/${sessionId}/meta`);
     if (!meta) { showError('Session not found.'); btn.disabled=false; btn.textContent='CONNECT'; return; }
   } catch(e) { showError('Lookup failed: ' + e.message); btn.disabled=false; btn.textContent='CONNECT'; return; }
-
   startPolling();
 });
 
 function disconnect() {
   isConnected = false;
   if (pollInterval) { clearInterval(pollInterval); pollInterval = null; }
-  audioQueue = []; isPlaying = false;
-  headerBytes = null; headerLocked = false; chunksSinceHeader = 0;
+  webmHeader = null; chunkCount = 0;
   document.getElementById('connBadge').textContent = 'DISCONNECTED';
   document.getElementById('connBadge').className = 'conn-badge';
   document.getElementById('connectBtn').className = 'connect-btn';
@@ -177,51 +197,20 @@ function disconnect() {
   document.getElementById('audioMain').textContent = 'Disconnected';
 }
 
-// ── Start polling — jump to live position ────────────────────
 function startPolling() {
-  isConnected = true;
-  audioQueue = []; isPlaying = false;
-  headerBytes = null; headerLocked = false; chunksSinceHeader = 0;
-
-  (async () => {
-    // Find the current live chunk so we don't replay old audio
-    // We also need chunk index=0 for the WebM header.
-    // Strategy: fetch last 2 chunks. If one has index=0, that's our header source.
-    // Otherwise anchor to latest and wait for new chunks.
-    try {
-      const snap = await fbGet(`sessions/${sessionId}/chunks`, { orderBy:'"$key"', limitToLast:'2' });
-      if (snap && typeof snap === 'object') {
-        const keys = Object.keys(snap).sort();
-
-        // Check if any of these is the header chunk (index 0)
-        for (const k of keys) {
-          if (snap[k].index === 0) {
-            const bin = atob(snap[k].audio);
-            headerBytes = new Uint8Array(bin.length);
-            for (let i = 0; i < bin.length; i++) headerBytes[i] = bin.charCodeAt(i);
-            dbg('Header pre-loaded from chunk index=0 (' + headerBytes.length + 'B)');
-            break;
-          }
-        }
-
-        // Anchor to latest key — only receive NEW chunks from here
-        if (keys.length) lastChunkKey = keys[keys.length - 1];
-      }
-    } catch(e) { dbg('Anchor err: ' + e.message); }
-
-    document.getElementById('connBadge').textContent = '● LIVE';
-    document.getElementById('connBadge').className = 'conn-badge live';
-    document.getElementById('connectBtn').className = 'connect-btn connected';
-    document.getElementById('connectBtn').textContent = 'DISCONNECT';
-    document.getElementById('connectBtn').disabled = false;
-    document.getElementById('audioMain').textContent = 'Listening...';
-    document.getElementById('audioSub').textContent = `Session: ${sessionId}`;
-    document.getElementById('audioDot').className = 'audio-dot buffering';
-    showToast('Connected! 🎧');
-
-    pollInterval = setInterval(pollChunks, POLL_MS);
-    pollChunks();
-  })();
+  isConnected = true; lastChunkKey = null; audioQueue = []; isPlaying = false;
+  webmHeader = null; chunkCount = 0;
+  document.getElementById('connBadge').textContent = '● LIVE';
+  document.getElementById('connBadge').className = 'conn-badge live';
+  document.getElementById('connectBtn').className = 'connect-btn connected';
+  document.getElementById('connectBtn').textContent = 'DISCONNECT';
+  document.getElementById('connectBtn').disabled = false;
+  document.getElementById('audioMain').textContent = 'Listening...';
+  document.getElementById('audioSub').textContent = `Session: ${sessionId}`;
+  document.getElementById('audioDot').className = 'audio-dot buffering';
+  showToast('Connected! 🎧');
+  pollInterval = setInterval(pollChunks, 300); // FIX: was 1000ms
+  pollChunks();
 }
 
 async function pollChunks() {
@@ -231,100 +220,86 @@ async function pollChunks() {
     try {
       const params = lastChunkKey
         ? { orderBy:'"$key"', startAfter:`"${lastChunkKey}"`, limitToLast:'10' }
-        : { orderBy:'"$key"', limitToLast:'1' };
+        : { orderBy:'"$key"', limitToLast:'1' }; // FIX: was 3
       chunks = await fbGet(`sessions/${sessionId}/chunks`, params);
     } catch {
       const all = await fbGet(`sessions/${sessionId}/chunks`);
       if (all && typeof all === 'object') {
-        const allKeys = Object.keys(all).sort();
-        const nk = lastChunkKey ? allKeys.filter(k => k > lastChunkKey) : allKeys.slice(-1);
+        const keys = Object.keys(all).sort();
+        const nk = lastChunkKey ? keys.filter(k => k > lastChunkKey) : keys.slice(-1) // FIX: was -3;
         chunks = {}; nk.forEach(k => { chunks[k] = all[k]; });
       }
     }
-
     if (chunks && typeof chunks === 'object') {
       const keys = Object.keys(chunks).sort();
-      const now = Date.now();
-      for (const k of keys) {
-        const chunk = chunks[k];
-        if (chunk.ts) document.getElementById('latencyVal').textContent = (now - chunk.ts) + 'ms';
-        enqueueChunk(chunk, k);
-        lastChunkKey = k;
-      }
+      for (const k of keys) { enqueueChunk(chunks[k], k); lastChunkKey = k; }
+      if (keys.length > 0 && chunks[keys[keys.length-1]].ts)
+        document.getElementById('latencyVal').textContent = (Date.now() - chunks[keys[keys.length-1]].ts) + 'ms';
     }
-
-    try {
+    // FIX: throttle heartbeat to every ~3s — avoids a second Firebase fetch every 300ms poll
+    if (!pollChunks._lastHbCheck || Date.now() - pollChunks._lastHbCheck > 3000) {
+      pollChunks._lastHbCheck = Date.now();
       const hb = await fbGet(`sessions/${sessionId}/heartbeat`);
-      if (hb && typeof hb === 'number') {
-        const stale = Date.now() - hb > 15000;
+      if (hb) {
+        const stale = Date.now() - hb > 10000;
         document.getElementById('connBadge').textContent = stale ? '⚠ STALE' : '● LIVE';
         document.getElementById('connBadge').className = 'conn-badge ' + (stale ? 'err' : 'live');
       }
-    } catch(e) {}
+    }
   } catch(e) { console.error('Poll:', e); }
 }
 
 function enqueueChunk(chunk, key) {
-  audioQueue.push({ chunk, key });
-  totalKb += (chunk.size || 0) / 1024;
-  addHistoryItem(chunk, key, 'buffered');
-  updateStats();
-  if (!isPlaying) playNext();
+  audioQueue.push({chunk, key});
+  totalChunks++; totalKb += (chunk.size||0)/1024;
+  addHistoryItem(chunk, key); updateStats();
+  if (!isPlaying && audioUnlocked) playNext();
 }
 
-// ── b64 → Uint8Array ──────────────────────────────────────────
-function b64ToBytes(b64) {
+// ── The KEY fix: prepend webm header to each chunk ────────────
+function decodeBase64ToBytes(b64) {
   const bin = atob(b64);
-  const out = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
-  return out;
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return bytes;
 }
 
-// ── Playback ──────────────────────────────────────────────────
 async function playNext() {
   if (audioQueue.length === 0) {
     isPlaying = false;
     document.getElementById('audioDot').className = 'audio-dot buffering';
     document.getElementById('audioMain').textContent = 'Waiting for audio...';
-    updateStats();
-    return;
+    updateStats(); return;
   }
-
   isPlaying = true;
-  const { chunk, key } = audioQueue.shift();
+  const {chunk, key} = audioQueue.shift();
   updateStats();
-
   document.getElementById('audioDot').className = 'audio-dot playing';
-  document.getElementById('audioMain').textContent = '▶ Live';
-  document.getElementById('audioSub').textContent =
-    `Chunk #${chunk.index ?? '?'} · ${((chunk.size||0)/1024).toFixed(1)}KB`;
-
-  const mimeType = chunk.mimeType || 'audio/webm;codecs=opus';
+  document.getElementById('audioMain').textContent = '▶ Playing';
+  document.getElementById('audioSub').textContent = `Chunk #${chunk.index||'?'} · ${((chunk.size||0)/1024).toFixed(1)}KB`;
 
   try {
-    const bytes = b64ToBytes(chunk.audio);
-    chunksSinceHeader++;
+    const bytes = decodeBase64ToBytes(chunk.audio);
+    const mimeType = chunk.mimeType || 'audio/webm;codecs=opus';
+    chunkCount++;
 
     let playBytes;
 
-    if (chunk.index === 0) {
-      // This IS the header chunk — save it (only if not already locked)
-      if (!headerLocked) {
-        headerBytes = bytes;
-        dbg('Header saved: ' + bytes.length + 'B (idx=0)');
-      }
+    if (chunkCount === 1) {
+      // First chunk: save it as the header AND play it (it's complete)
+      webmHeader = bytes;
       playBytes = bytes;
-    } else if (!headerBytes) {
-      // Don't have header yet — skip this chunk, can't decode without it
-      dbg('No header yet, skipping chunk #' + chunk.index);
-      markHistoryError(key);
-      playNext();
-      return;
+      dbg('Saved webm header: ' + bytes.length + ' bytes');
     } else {
-      // Normal chunk: prepend header so Android can decode it
-      playBytes = new Uint8Array(headerBytes.length + bytes.length);
-      playBytes.set(headerBytes, 0);
-      playBytes.set(bytes, headerBytes.length);
+      // Subsequent chunks: prepend the header so Android can decode
+      if (webmHeader) {
+        const combined = new Uint8Array(webmHeader.length + bytes.length);
+        combined.set(webmHeader, 0);
+        combined.set(bytes, webmHeader.length);
+        playBytes = combined;
+      } else {
+        playBytes = bytes;
+      }
     }
 
     const blob = new Blob([playBytes], { type: mimeType });
@@ -333,62 +308,44 @@ async function playNext() {
     await new Promise((resolve, reject) => {
       const audio = new Audio();
       audio.volume = volume;
-      audio.preload = 'auto';
       audio.onended = () => { URL.revokeObjectURL(url); resolve(); };
       audio.onerror = () => {
         URL.revokeObjectURL(url);
-        reject(new Error('code=' + (audio.error?.code) + ' ' + (audio.error?.message || '')));
+        const code = audio.error?.code;
+        const msg = audio.error?.message || 'unknown';
+        reject(new Error(`code=${code} ${msg}`));
       };
       audio.src = url;
       audio.play().catch(e => { URL.revokeObjectURL(url); reject(e); });
     });
 
-    // Only lock the header AFTER first successful play
-    if (chunk.index === 0 && !headerLocked) {
-      headerLocked = true;
-      dbg('Header locked ✅');
-    }
-
-    totalChunks++;
-    updateStats();
     markHistoryPlayed(key);
-    dbg('✅ #' + chunk.index + ' played');
+    dbg('✅ chunk ' + chunkCount + ' played OK');
 
   } catch(e) {
-    dbg('❌ #' + (chunk.index ?? '?') + ': ' + e.message);
+    dbg('❌ chunk ' + chunkCount + ': ' + e.message);
     markHistoryError(key);
-
-    // If the header chunk itself failed, clear it so next chunk#0 can replace it
-    if (chunk.index === 0 && !headerLocked) {
-      headerBytes = null;
-      dbg('Header chunk failed, will retry on next chunk#0');
-    }
-    // For non-header chunks: keep the locked header, it's still good
-    // The error was in the data chunk, not the header
+    // If first chunk failed, reset header so we retry on next chunk
+    if (chunkCount === 1) { webmHeader = null; chunkCount = 0; }
   }
-
   playNext();
 }
 
-// ── Stats / History ───────────────────────────────────────────
 function updateStats() {
   document.getElementById('statChunks').textContent = totalChunks;
   document.getElementById('statKb').textContent = totalKb.toFixed(0);
   document.getElementById('statQueue').textContent = audioQueue.length;
 }
-function addHistoryItem(chunk, key, status) {
+function addHistoryItem(chunk, key) {
   const list = document.getElementById('historyList');
   const empty = list.querySelector('.empty-msg');
   if (empty) empty.remove();
   const now = new Date().toLocaleTimeString();
   const div = document.createElement('div');
   div.className = 'history-item';
-  div.id = 'hi_' + key;
-  const label = status === 'skipped' ? '⏩ SKIPPED' : '● BUFFERED';
-  const cls   = status === 'skipped' ? 'skipped' : 'buffered';
-  div.innerHTML = `<span class="hi-time">${now}</span><span class="hi-size">${((chunk.size||0)/1024).toFixed(1)}KB</span><span class="hi-status ${cls}" id="hs_${key}">${label}</span>`;
+  div.innerHTML = `<span class="hi-time">${now}</span><span class="hi-size">${((chunk.size||0)/1024).toFixed(1)}KB</span><span class="hi-status buffered" id="hs_${key}">● BUFFERED</span>`;
   list.insertBefore(div, list.firstChild);
-  if (list.children.length > 50) list.removeChild(list.lastChild);
+  if (list.children.length > 40) list.removeChild(list.lastChild);
 }
 function markHistoryPlayed(key) {
   const s = document.getElementById('hs_' + key);
@@ -398,28 +355,24 @@ function markHistoryError(key) {
   const s = document.getElementById('hs_' + key);
   if (s) { s.textContent = '✗ ERROR'; s.className = 'hi-status error'; }
 }
-
 document.getElementById('clearBtn').addEventListener('click', () => {
   document.getElementById('historyList').innerHTML = '<div class="empty-msg">No audio received yet</div>';
-  // Reset header so it re-syncs from next chunk#0
-  if (!headerLocked) { headerBytes = null; chunksSinceHeader = 0; }
+  document.getElementById('debugBox').style.display = 'none';
+  webmHeader = null; chunkCount = 0;
 });
 document.getElementById('volSlider').addEventListener('input', function() {
   volume = this.value / 100;
   document.getElementById('volVal').textContent = this.value + '%';
 });
 function showError(msg) { const b=document.getElementById('errBox'); b.textContent='⚠ '+msg; b.style.display='block'; }
-function clearError()   { const b=document.getElementById('errBox'); b.style.display='none'; b.textContent=''; }
+function clearError() { const b=document.getElementById('errBox'); b.style.display='none'; b.textContent=''; }
 function showToast(msg) {
   const t=document.getElementById('toast'); t.textContent=msg; t.classList.add('show');
   setTimeout(() => t.classList.remove('show'), 2500);
 }
 window.addEventListener('load', () => {
   const s = new URLSearchParams(window.location.search).get('session');
-  if (s) {
-    document.getElementById('sessionInput').value = s.toUpperCase();
-    setTimeout(() => document.getElementById('connectBtn').click(), 400);
-  }
+  if (s) document.getElementById('sessionInput').value = s.toUpperCase();
 });
 </script>
 </body>
