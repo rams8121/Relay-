@@ -255,52 +255,107 @@ function enqueueChunk(chunk, key) {
   if (!isPlaying && audioUnlocked) playNext();
 }
 
-// ── Playback via AudioContext.decodeAudioData (works on Android) ─
-async function playNext() {
+// ── MediaSource streaming player (works on Android for webm/ogg) ─
+// Strategy: pipe all chunks into a single MediaSource+SourceBuffer.
+// The first chunk contains the webm/ogg init segment; subsequent chunks
+// are cluster data. appendBuffer handles this natively — no re-wrapping needed.
+
+let ms = null, sb = null, msAudio = null;
+let sbQueue = [], sbBusy = false;
+let msReady = false;
+const MIME_PREF = ['audio/webm;codecs=opus','audio/ogg;codecs=opus','audio/webm','audio/ogg'];
+
+function getMimeType(chunkMime) {
+  // Use whatever the sender claims, fall back to first supported
+  const candidates = [chunkMime, ...MIME_PREF].filter(Boolean);
+  return candidates.find(m => MediaSource.isTypeSupported(m)) || 'audio/webm;codecs=opus';
+}
+
+function initMediaSource(mimeType) {
+  if (msAudio) { try { msAudio.pause(); msAudio.src=''; } catch(e){} }
+  ms = new MediaSource();
+  msAudio = new Audio();
+  msAudio.volume = volume;
+  msAudio.src = URL.createObjectURL(ms);
+  msAudio.play().catch(()=>{});
+  sb = null; sbQueue = []; sbBusy = false; msReady = false;
+
+  ms.addEventListener('sourceopen', () => {
+    try {
+      sb = ms.addSourceBuffer(mimeType);
+      sb.mode = 'sequence';
+      sb.addEventListener('updateend', flushSbQueue);
+      msReady = true;
+      dbg('MediaSource open: ' + mimeType);
+      flushSbQueue();
+    } catch(e) { dbg('SB init error: ' + e.message); }
+  }, {once: true});
+}
+
+function flushSbQueue() {
+  if (!sb || sbBusy || sbQueue.length === 0) return;
+  if (sb.updating) return;
+  sbBusy = true;
+  const {bytes, key} = sbQueue.shift();
+  try {
+    sb.appendBuffer(bytes);
+    markHistoryPlayed(key);
+  } catch(e) {
+    dbg('appendBuffer err: ' + e.message);
+    markHistoryError(key);
+  }
+  sbBusy = false;
+}
+
+function b64ToBytes(b64) {
+  const bin = atob(b64);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+
+// Called when a new chunk arrives
+function playChunk(chunk, key) {
+  const mimeType = getMimeType(chunk.mimeType);
+
+  // Init MediaSource on first chunk or if mime changed
+  if (!ms || ms.readyState === 'closed' || !sb) {
+    initMediaSource(mimeType);
+  }
+
+  const bytes = b64ToBytes(chunk.audio);
+  sbQueue.push({bytes, key});
+
+  document.getElementById('audioDot').className = 'audio-dot playing';
+  document.getElementById('audioMain').textContent = '▶ Playing';
+  document.getElementById('audioSub').textContent =
+    `Chunk #${chunk.index||'?'} · ${((chunk.size||0)/1024).toFixed(1)}KB`;
+
+  if (msReady) flushSbQueue();
+}
+
+// Volume changes apply to msAudio
+document.getElementById('volSlider').addEventListener('input', function() {
+  volume = this.value / 100;
+  document.getElementById('volVal').textContent = this.value + '%';
+  if (msAudio) msAudio.volume = volume;
+});
+
+// Simple queue drain — no longer async per-chunk
+function playNext() {
   if (audioQueue.length === 0) {
     isPlaying = false;
     document.getElementById('audioDot').className = 'audio-dot buffering';
     document.getElementById('audioMain').textContent = 'Waiting for audio...';
-    updateStats(); return;
+    updateStats();
+    return;
   }
   isPlaying = true;
-  const {chunk, key} = audioQueue.shift();
-  updateStats();
-  document.getElementById('audioDot').className = 'audio-dot playing';
-  document.getElementById('audioMain').textContent = '▶ Playing';
-  document.getElementById('audioSub').textContent = `Chunk #${chunk.index||'?'} · ${((chunk.size||0)/1024).toFixed(1)}KB`;
-
-  try {
-    // Decode base64 → ArrayBuffer
-    const bin = atob(chunk.audio);
-    const bytes = new Uint8Array(bin.length);
-    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-
-    // decodeAudioData works on Android for ogg/opus and webm/opus
-    const ctx = getAudioCtx();
-    const audioBuffer = await ctx.decodeAudioData(bytes.buffer.slice(0));
-
-    // Play through gain node for volume control
-    const source = ctx.createBufferSource();
-    const gain = ctx.createGain();
-    gain.gain.value = volume;
-    source.buffer = audioBuffer;
-    source.connect(gain);
-    gain.connect(ctx.destination);
-
-    await new Promise(resolve => {
-      source.onended = resolve;
-      source.start(0);
-    });
-
-    markHistoryPlayed(key);
-    dbg('✅ chunk ' + (chunk.index||'?') + ' played OK');
-
-  } catch(e) {
-    dbg('❌ ' + e.message);
-    markHistoryError(key);
+  while (audioQueue.length > 0) {
+    const {chunk, key} = audioQueue.shift();
+    updateStats();
+    playChunk(chunk, key);
   }
-  playNext();
 }
 
 function updateStats() {
@@ -331,10 +386,7 @@ document.getElementById('clearBtn').addEventListener('click', () => {
   document.getElementById('historyList').innerHTML = '<div class="empty-msg">No audio received yet</div>';
   document.getElementById('debugBox').style.display = 'none';
 });
-document.getElementById('volSlider').addEventListener('input', function() {
-  volume = this.value / 100;
-  document.getElementById('volVal').textContent = this.value + '%';
-});
+// volSlider handled in MediaSource block above
 function showError(msg) { const b=document.getElementById('errBox'); b.textContent='⚠ '+msg; b.style.display='block'; }
 function clearError() { const b=document.getElementById('errBox'); b.style.display='none'; b.textContent=''; }
 function showToast(msg) {
