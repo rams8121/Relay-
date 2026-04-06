@@ -1,0 +1,398 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0"/>
+<title>Relay — Receiver</title>
+<style>
+:root{--bg:#07070e;--surface:#10101a;--border:#1a1a28;--accent:#00ff88;--accent2:#00aaff;--danger:#ff4055;--text:#dde0f0;--muted:#4a4a65}
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:var(--bg);color:var(--text);font-family:'Segoe UI',system-ui,sans-serif;min-height:100vh}
+.header{padding:16px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;background:var(--bg)}
+.hlogo{font-weight:800;font-size:16px;letter-spacing:.05em}.hlogo span{color:var(--accent)}
+.conn-badge{font-size:11px;padding:3px 9px;border-radius:20px;border:1px solid var(--border);color:var(--muted);font-family:monospace}
+.conn-badge.live{border-color:var(--accent);color:var(--accent);background:rgba(0,255,136,.08)}
+.conn-badge.err{border-color:var(--danger);color:var(--danger)}
+.session-form{padding:20px;border-bottom:1px solid var(--border)}
+.session-label{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin-bottom:8px}
+.session-row{display:flex;gap:8px}
+.session-input{flex:1;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px 12px;color:var(--text);font-family:monospace;font-size:16px;outline:none;text-transform:uppercase;letter-spacing:.1em}
+.connect-btn{background:var(--accent);color:#050508;border:none;border-radius:8px;padding:10px 18px;font-size:13px;font-weight:700;cursor:pointer}
+.connect-btn.connected{background:transparent;color:var(--danger);border:1px solid var(--danger)}
+.connect-btn:disabled{opacity:.5;cursor:not-allowed}
+.err-box{margin-top:10px;padding:10px 14px;background:rgba(255,64,85,.12);border:1px solid #ff4055;border-radius:8px;color:#ff6070;font-size:13px;line-height:1.5}
+.audio-status{padding:14px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px}
+.audio-dot{width:10px;height:10px;border-radius:50%;background:var(--muted);flex-shrink:0}
+.audio-dot.playing{background:var(--accent);box-shadow:0 0 10px var(--accent)}
+.audio-dot.buffering{background:var(--accent2)}
+.audio-info{flex:1}
+.audio-main{font-size:13px;font-weight:600}
+.audio-sub{font-size:11px;color:var(--muted);margin-top:2px}
+.stats-row{display:flex;padding:10px 20px;gap:8px;border-bottom:1px solid var(--border)}
+.stat-box{flex:1;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:8px;text-align:center}
+.stat-num{font-size:18px;font-weight:700;color:var(--accent);font-family:monospace}
+.stat-lbl{font-size:10px;color:var(--muted);text-transform:uppercase;margin-top:1px}
+.latency-row{padding:8px 20px;border-bottom:1px solid var(--border);font-size:11px;color:var(--muted)}
+.history-section{padding:12px 20px}
+.history-title{display:flex;justify-content:space-between;align-items:center;font-size:11px;font-weight:700;letter-spacing:.08em;margin-bottom:8px}
+.clear-btn{background:transparent;border:1px solid var(--border);border-radius:6px;padding:3px 10px;font-size:11px;color:var(--muted);cursor:pointer}
+.history-list{display:flex;flex-direction:column;gap:4px}
+.history-item{display:flex;gap:8px;align-items:center;font-size:12px;padding:6px 8px;background:var(--surface);border-radius:6px}
+.hi-time{color:var(--muted);font-family:monospace}
+.hi-size{color:var(--accent2);font-family:monospace}
+.hi-status{margin-left:auto;font-size:11px}
+.hi-status.buffered{color:var(--muted)}
+.hi-status.played{color:var(--accent)}
+.hi-status.error{color:var(--danger)}
+.empty-msg{color:var(--muted);font-size:13px;text-align:center;padding:20px}
+.vol-row{display:flex;align-items:center;gap:10px;padding:12px 20px;border-top:1px solid var(--border)}
+.vol-row input{flex:1}
+.vol-row div{font-size:12px;color:var(--muted)}
+.toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#1a1a2e;border:1px solid var(--border);border-radius:8px;padding:8px 16px;font-size:13px;opacity:0;transition:opacity .3s;pointer-events:none;white-space:nowrap}
+.toast.show{opacity:1}
+
+/* Tap-to-hear overlay */
+#tapOverlay{position:fixed;inset:0;background:rgba(7,7,14,0.92);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:999;gap:16px}
+#tapOverlay.hidden{display:none}
+#tapBtn{background:var(--accent);color:#050508;border:none;border-radius:16px;padding:22px 40px;font-size:20px;font-weight:800;cursor:pointer;letter-spacing:.05em}
+#tapOverlay p{color:var(--muted);font-size:13px}
+</style>
+</head>
+<body>
+
+<!-- Tap-to-hear overlay — dismissed on tap, then flushes queue -->
+<div id="tapOverlay">
+  <button id="tapBtn">🔊 TAP TO HEAR AUDIO</button>
+  <p>Browser requires a tap to enable audio</p>
+</div>
+
+<div class="header">
+  <div class="hlogo">RELAY<span>.IO</span></div>
+  <div class="conn-badge" id="connBadge">DISCONNECTED</div>
+</div>
+<div class="session-form">
+  <div class="session-label">Session ID (from laptop)</div>
+  <div class="session-row">
+    <input class="session-input" id="sessionInput" placeholder="e.g. AB3K9X"
+      autocomplete="off" autocorrect="off" autocapitalize="characters" spellcheck="false" maxlength="10"/>
+    <button class="connect-btn" id="connectBtn">CONNECT</button>
+  </div>
+  <div id="errBox" class="err-box" style="display:none"></div>
+</div>
+<div class="audio-status">
+  <div class="audio-dot" id="audioDot"></div>
+  <div class="audio-info">
+    <div class="audio-main" id="audioMain">Waiting for audio...</div>
+    <div class="audio-sub" id="audioSub">Connect to a session to begin</div>
+  </div>
+</div>
+<div class="stats-row">
+  <div class="stat-box"><div class="stat-num" id="statChunks">0</div><div class="stat-lbl">CHUNKS</div></div>
+  <div class="stat-box"><div class="stat-num" id="statKb">0</div><div class="stat-lbl">KB HEARD</div></div>
+  <div class="stat-box"><div class="stat-num" id="statQueue">0</div><div class="stat-lbl">QUEUED</div></div>
+</div>
+<div class="latency-row">⏱ Latency: <span id="latencyVal">—</span></div>
+<div class="history-section">
+  <div class="history-title">
+    <span>📻 RECEIVED CHUNKS</span>
+    <button class="clear-btn" id="clearBtn">CLEAR</button>
+  </div>
+  <div class="history-list" id="historyList">
+    <div class="empty-msg">No audio received yet</div>
+  </div>
+</div>
+<div class="vol-row">
+  <div>🔊</div>
+  <input type="range" id="volSlider" min="0" max="100" value="100"/>
+  <div id="volVal">100%</div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+// ─── Firebase Config ───────────────────────────────────────────
+const FIREBASE_CONFIG = {
+  databaseURL: "https://rama-20456-default-rtdb.firebaseio.com"
+};
+
+// ─── State ────────────────────────────────────────────────────
+let isConnected  = false;
+let sessionId    = null;
+let pollInterval = null;
+let lastChunkKey = null;
+let audioQueue   = [];
+let isPlaying    = false;
+let volume       = 1.0;
+let totalChunks  = 0;
+let totalKb      = 0;
+let audioCtx     = null;
+let audioUnlocked = false;  // FIX: track whether user has tapped
+
+// ─── AudioContext — init on tap ────────────────────────────────
+function getAudioCtx() {
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  return audioCtx;
+}
+
+// ─── TAP OVERLAY — FIX: unlock audio then flush queue ─────────
+document.getElementById('tapBtn').addEventListener('click', async () => {
+  try {
+    const ctx = getAudioCtx();
+    // Play a silent buffer — this is what actually unlocks audio on iOS/Android
+    const buf = ctx.createBuffer(1, 1, 22050);
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    src.connect(ctx.destination);
+    src.start(0);
+    if (ctx.state === 'suspended') await ctx.resume();
+    audioUnlocked = true;
+    document.getElementById('tapOverlay').classList.add('hidden');
+    // If chunks already arrived while waiting, start playing them now
+    if (audioQueue.length > 0 && !isPlaying) playNext();
+    showToast('Audio unlocked 🎧');
+  } catch(e) {
+    showToast('Tap failed: ' + e.message);
+  }
+});
+
+// ─── Firebase REST ─────────────────────────────────────────────
+async function fbGet(path, params = {}) {
+  const url = new URL(`${FIREBASE_CONFIG.databaseURL}/${path}.json`);
+  Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, v));
+  const res = await fetch(url.toString());
+  if (!res.ok) throw new Error(`Firebase fetch failed: ${res.status}`);
+  return res.json();
+}
+
+// ─── Connect / Disconnect ──────────────────────────────────────
+document.getElementById('connectBtn').addEventListener('click', async () => {
+  if (isConnected) { disconnect(); return; }
+
+  const sid = document.getElementById('sessionInput').value.trim().toUpperCase();
+  if (!sid) { showError('Enter a session ID first.'); return; }
+
+  sessionId = sid;
+  const btn = document.getElementById('connectBtn');
+  btn.disabled = true;
+  btn.textContent = 'CONNECTING...';
+  clearError();
+
+  // Test Firebase reachability
+  try {
+    const testRes = await Promise.race([
+      fetch(`${FIREBASE_CONFIG.databaseURL}/.json?shallow=true`),
+      new Promise((_, rej) => setTimeout(() => rej(new Error('Timed out after 8s — check WiFi/mobile data')), 8000))
+    ]);
+    if (!testRes.ok) throw new Error(`HTTP ${testRes.status}`);
+  } catch(e) {
+    showError('Cannot reach Firebase: ' + e.message);
+    btn.disabled = false; btn.textContent = 'CONNECT';
+    return;
+  }
+
+  // Verify session exists
+  try {
+    const meta = await fbGet(`sessions/${sessionId}/meta`);
+    if (!meta) {
+      showError(`Session "${sessionId}" not found. Make sure the laptop relay is running.`);
+      btn.disabled = false; btn.textContent = 'CONNECT';
+      return;
+    }
+  } catch(e) {
+    showError('Session lookup failed: ' + e.message);
+    btn.disabled = false; btn.textContent = 'CONNECT';
+    return;
+  }
+
+  startPolling();
+});
+
+function disconnect() {
+  isConnected = false;
+  if (pollInterval) { clearInterval(pollInterval); pollInterval = null; }
+  document.getElementById('connBadge').textContent = 'DISCONNECTED';
+  document.getElementById('connBadge').className = 'conn-badge';
+  document.getElementById('connectBtn').className = 'connect-btn';
+  document.getElementById('connectBtn').textContent = 'CONNECT';
+  document.getElementById('connectBtn').disabled = false;
+  document.getElementById('audioDot').className = 'audio-dot';
+  document.getElementById('audioMain').textContent = 'Disconnected';
+}
+
+// ─── Polling ───────────────────────────────────────────────────
+function startPolling() {
+  isConnected = true;
+  lastChunkKey = null;
+  audioQueue = [];
+  isPlaying = false;
+
+  document.getElementById('connBadge').textContent = '● LIVE';
+  document.getElementById('connBadge').className = 'conn-badge live';
+  document.getElementById('connectBtn').className = 'connect-btn connected';
+  document.getElementById('connectBtn').textContent = 'DISCONNECT';
+  document.getElementById('connectBtn').disabled = false;
+  document.getElementById('audioMain').textContent = 'Listening for audio...';
+  document.getElementById('audioSub').textContent = `Session: ${sessionId}`;
+  document.getElementById('audioDot').className = 'audio-dot buffering';
+
+  showToast('Connected! 🎧');
+  pollInterval = setInterval(pollChunks, 1000);
+  pollChunks();
+}
+
+async function pollChunks() {
+  if (!isConnected) return;
+  try {
+    let chunks = null;
+    try {
+      const params = lastChunkKey
+        ? { orderBy: '"$key"', startAfter: `"${lastChunkKey}"`, limitToLast: '10' }
+        : { orderBy: '"$key"', limitToLast: '2' };
+      chunks = await fbGet(`sessions/${sessionId}/chunks`, params);
+    } catch {
+      const allChunks = await fbGet(`sessions/${sessionId}/chunks`);
+      if (allChunks && typeof allChunks === 'object') {
+        const allKeys = Object.keys(allChunks).sort();
+        const newKeys = lastChunkKey ? allKeys.filter(k => k > lastChunkKey) : allKeys.slice(-2);
+        chunks = {};
+        newKeys.forEach(k => { chunks[k] = allChunks[k]; });
+      }
+    }
+
+    if (chunks && typeof chunks === 'object') {
+      const keys = Object.keys(chunks).sort();
+      for (const key of keys) {
+        enqueueChunk(chunks[key], key);
+        lastChunkKey = key;
+      }
+      if (keys.length > 0) {
+        const latest = chunks[keys[keys.length - 1]];
+        if (latest.ts) document.getElementById('latencyVal').textContent = (Date.now() - latest.ts) + 'ms';
+      }
+    }
+
+    const hb = await fbGet(`sessions/${sessionId}/heartbeat`);
+    if (hb && typeof hb === 'number') {
+      const age = Date.now() - hb;
+      document.getElementById('connBadge').textContent = age > 10000 ? '⚠ STALE' : '● LIVE';
+      document.getElementById('connBadge').className = 'conn-badge ' + (age > 10000 ? 'err' : 'live');
+    }
+  } catch(e) {
+    console.error('Poll error:', e);
+  }
+}
+
+// ─── Audio Queue ───────────────────────────────────────────────
+function enqueueChunk(chunk, key) {
+  audioQueue.push({ chunk, key });
+  totalChunks++;
+  totalKb += (chunk.size || 0) / 1024;
+  addHistoryItem(chunk, key);
+  updateStats();
+  // FIX: only start playing if audio is already unlocked
+  if (!isPlaying && audioUnlocked) playNext();
+}
+
+async function playNext() {
+  if (audioQueue.length === 0) {
+    isPlaying = false;
+    document.getElementById('audioDot').className = 'audio-dot buffering';
+    document.getElementById('audioMain').textContent = 'Waiting for audio...';
+    updateStats();
+    return;
+  }
+
+  isPlaying = true;
+  const { chunk, key } = audioQueue.shift();
+  updateStats();
+
+  document.getElementById('audioDot').className = 'audio-dot playing';
+  document.getElementById('audioMain').textContent = '▶ Playing audio';
+  document.getElementById('audioSub').textContent = `Chunk #${chunk.index || '?'} · ${((chunk.size||0)/1024).toFixed(1)}KB`;
+
+  try {
+    const ctx = getAudioCtx();
+    const binaryStr = atob(chunk.audio);
+    const bytes = new Uint8Array(binaryStr.length);
+    for (let i = 0; i < binaryStr.length; i++) bytes[i] = binaryStr.charCodeAt(i);
+
+    const audioBuffer = await ctx.decodeAudioData(bytes.buffer.slice(0));
+    const source = ctx.createBufferSource();
+    const gainNode = ctx.createGain();
+    gainNode.gain.value = volume;
+    source.buffer = audioBuffer;
+    source.connect(gainNode);
+    gainNode.connect(ctx.destination);
+    source.onended = () => { markHistoryPlayed(key); playNext(); };
+    source.start(0);
+  } catch(e) {
+    console.error('Decode/play error:', e);
+    markHistoryError(key);
+    playNext();
+  }
+}
+
+// ─── Stats ─────────────────────────────────────────────────────
+function updateStats() {
+  document.getElementById('statChunks').textContent = totalChunks;
+  document.getElementById('statKb').textContent = totalKb.toFixed(0);
+  document.getElementById('statQueue').textContent = audioQueue.length;
+}
+
+// ─── History ───────────────────────────────────────────────────
+function addHistoryItem(chunk, key) {
+  const list = document.getElementById('historyList');
+  const empty = list.querySelector('.empty-msg');
+  if (empty) empty.remove();
+  const now = new Date().toLocaleTimeString('en-IN', { hour:'2-digit', minute:'2-digit', second:'2-digit' });
+  const div = document.createElement('div');
+  div.className = 'history-item';
+  div.id = 'hi_' + key;
+  div.innerHTML = `<span class="hi-time">${now}</span><span class="hi-size">${((chunk.size||0)/1024).toFixed(1)}KB</span><span class="hi-status buffered">● BUFFERED</span>`;
+  list.insertBefore(div, list.firstChild);
+  if (list.children.length > 40) list.removeChild(list.lastChild);
+}
+function markHistoryPlayed(key) {
+  const el = document.getElementById('hi_' + key);
+  if (el) { const s = el.querySelector('.hi-status'); if (s) { s.textContent = '✓ PLAYED'; s.className = 'hi-status played'; } }
+}
+function markHistoryError(key) {
+  const el = document.getElementById('hi_' + key);
+  if (el) { const s = el.querySelector('.hi-status'); if (s) { s.textContent = '✗ ERROR'; s.className = 'hi-status error'; } }
+}
+
+document.getElementById('clearBtn').addEventListener('click', () => {
+  document.getElementById('historyList').innerHTML = '<div class="empty-msg">No audio received yet</div>';
+});
+
+// ─── Volume ────────────────────────────────────────────────────
+document.getElementById('volSlider').addEventListener('input', function() {
+  volume = this.value / 100;
+  document.getElementById('volVal').textContent = this.value + '%';
+});
+
+// ─── Helpers ───────────────────────────────────────────────────
+function showError(msg) {
+  const b = document.getElementById('errBox');
+  b.textContent = '⚠ ' + msg;
+  b.style.display = 'block';
+}
+function clearError() {
+  const b = document.getElementById('errBox');
+  b.style.display = 'none';
+  b.textContent = '';
+}
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2500);
+}
+
+// ─── Auto-connect from URL param ──────────────────────────────
+window.addEventListener('load', () => {
+  const s = new URLSearchParams(window.location.search).get('session');
+  if (s) document.getElementById('sessionInput').value = s.toUpperCase();
+});
+</script>
+</body>
+</html>
